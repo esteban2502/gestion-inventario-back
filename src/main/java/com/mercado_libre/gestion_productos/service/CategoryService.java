@@ -4,6 +4,7 @@ import com.mercado_libre.gestion_productos.dto.CategoryDTO;
 import com.mercado_libre.gestion_productos.exception.CategoryHasProductsException;
 import com.mercado_libre.gestion_productos.exception.ResourceNotFoundException;
 import com.mercado_libre.gestion_productos.model.Category;
+import com.mercado_libre.gestion_productos.model.User;
 import com.mercado_libre.gestion_productos.repository.CategoryRepository;
 import com.mercado_libre.gestion_productos.repository.ProductRepository;
 import java.util.List;
@@ -16,34 +17,45 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
+    private final CurrentUserService currentUserService;
 
-    public CategoryService(CategoryRepository categoryRepository, ProductRepository productRepository) {
+    public CategoryService(
+            CategoryRepository categoryRepository,
+            ProductRepository productRepository,
+            CurrentUserService currentUserService
+    ) {
         this.categoryRepository = categoryRepository;
         this.productRepository = productRepository;
+        this.currentUserService = currentUserService;
     }
 
     public CategoryDTO create(CategoryDTO dto) {
+        User owner = currentUserService.getCurrentUser();
         Category category = Category.builder()
                 .name(dto.getName())
                 .description(dto.getDescription())
+                .owner(owner)
                 .build();
         return toDTO(categoryRepository.save(category));
     }
 
     @Transactional(readOnly = true)
     public List<CategoryDTO> findAll() {
-        return categoryRepository.findAll().stream().map(this::toDTO).toList();
+        Long ownerId = currentUserService.getCurrentUserId();
+        return categoryRepository.findByOwner_Id(ownerId).stream().map(this::toDTO).toList();
     }
 
     @Transactional(readOnly = true)
     public CategoryDTO findById(Long id) {
-        Category category = categoryRepository.findById(id)
+        Long ownerId = currentUserService.getCurrentUserId();
+        Category category = categoryRepository.findByIdAndOwner_Id(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found with id " + id));
         return toDTO(category);
     }
 
     public CategoryDTO update(Long id, CategoryDTO dto) {
-        Category category = categoryRepository.findById(id)
+        Long ownerId = currentUserService.getCurrentUserId();
+        Category category = categoryRepository.findByIdAndOwner_Id(id, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found with id " + id));
 
         category.setName(dto.getName());
@@ -52,10 +64,11 @@ public class CategoryService {
     }
 
     public void delete(Long id) {
-        if (!categoryRepository.existsById(id)) {
+        Long ownerId = currentUserService.getCurrentUserId();
+        if (!categoryRepository.existsByIdAndOwner_Id(id, ownerId)) {
             throw new ResourceNotFoundException("Category not found with id " + id);
         }
-        if (productRepository.existsByCategoryId(id)) {
+        if (productRepository.existsByCategory_IdAndOwner_Id(id, ownerId)) {
             throw new CategoryHasProductsException("Category cannot be deleted because it has associated products.");
         }
         categoryRepository.deleteById(id);
@@ -69,4 +82,3 @@ public class CategoryService {
                 .build();
     }
 }
-

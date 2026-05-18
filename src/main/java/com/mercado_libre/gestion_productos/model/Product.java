@@ -44,5 +44,10 @@ public class Product {
     @JoinColumn(name = "category_id")
     @ToString.Exclude
     private Category category;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    @ToString.Exclude
+    private User owner;
 }
 
