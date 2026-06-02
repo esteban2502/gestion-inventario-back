@@ -1,9 +1,11 @@
 package com.mercado_libre.gestion_productos.repository;
 
 import com.mercado_libre.gestion_productos.model.Product;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 public interface ProductRepository extends JpaRepository<Product, Long> {
 
@@ -20,4 +22,18 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     boolean existsByIdAndOwner_Id(Long id, Long ownerId);
 
     long countByOwner_Id(Long ownerId);
+
+    boolean existsByOwner_Id(Long ownerId);
+
+    List<Product> findTop30ByStockLessThanOrderByStockAsc(Integer stock);
+
+    long countByStockLessThan(Integer stock);
+
+    long countByCategoryIsNull();
+
+    @Query("SELECT COALESCE(SUM(p.price * p.stock), 0) FROM Product p")
+    BigDecimal sumInventoryValue();
+
+    @Query("SELECT c.name, COUNT(p) FROM Product p JOIN p.category c GROUP BY c.id, c.name")
+    List<Object[]> countProductsGroupedByCategory();
 }

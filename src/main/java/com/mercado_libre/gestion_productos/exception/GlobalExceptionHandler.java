@@ -26,8 +26,23 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    @ExceptionHandler(DuplicateCategoryNameException.class)
+    public ResponseEntity<Map<String, Object>> handleDuplicateCategoryName(DuplicateCategoryNameException ex) {
+        return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
     @ExceptionHandler(EmailAlreadyExistsException.class)
     public ResponseEntity<Map<String, Object>> handleEmailAlreadyExists(EmailAlreadyExistsException ex) {
+        return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler(VendorHasInventoryException.class)
+    public ResponseEntity<Map<String, Object>> handleVendorHasInventory(VendorHasInventoryException ex) {
         return buildErrorResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
@@ -48,7 +63,20 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, Object>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
-        return buildErrorResponse(HttpStatus.CONFLICT, "Data integrity violation: duplicated or related record exists.");
+        String root = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        if (root != null && root.contains("uk_category_owner_name")) {
+            return buildErrorResponse(
+                    HttpStatus.CONFLICT, "Ya existe una categoria con ese nombre en su cuenta.");
+        }
+        if (root != null
+                && (root.contains("uk_category_name") || root.contains("categories_name_key"))) {
+            return buildErrorResponse(
+                    HttpStatus.CONFLICT,
+                    "Conflicto de nombre de categoria en la base de datos. Ejecute el script "
+                            + "scripts/fix_category_unique_constraint.sql para permitir el mismo nombre entre "
+                            + "distintos vendedores.");
+        }
+        return buildErrorResponse(HttpStatus.CONFLICT, "No se pudo guardar: conflicto con datos existentes.");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

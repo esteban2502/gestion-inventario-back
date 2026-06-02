@@ -72,7 +72,7 @@ public class AuthService {
                 .firstName(sanitizeText(request.getFirstName()))
                 .lastName(sanitizeText(request.getLastName()))
                 .address(sanitizeText(request.getAddress()))
-                .phone(sanitizeText(request.getPhone()))
+                .phone(sanitizePhoneDigits(request.getPhone()))
                 .email(normalizedEmail)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .role(Role.SELLER)
@@ -182,5 +182,10 @@ public class AuthService {
 
     private String sanitizeText(String value) {
         return value == null ? "" : value.trim().replaceAll("\\s+", " ");
+    }
+
+    /** Solo digitos, +, guion y espacio. */
+    private String sanitizePhoneDigits(String value) {
+        return sanitizeText(value).replaceAll("[^0-9+\\-\\s]", "");
     }
 }

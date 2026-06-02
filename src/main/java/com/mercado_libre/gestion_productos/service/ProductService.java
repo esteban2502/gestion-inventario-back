@@ -7,9 +7,11 @@ import com.mercado_libre.gestion_productos.model.Product;
 import com.mercado_libre.gestion_productos.model.User;
 import com.mercado_libre.gestion_productos.repository.CategoryRepository;
 import com.mercado_libre.gestion_productos.repository.ProductRepository;
+import com.mercado_libre.gestion_productos.util.InventoryTextSanitization;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @Transactional
@@ -32,10 +34,14 @@ public class ProductService {
     public ProductDTO create(ProductDTO dto) {
         User owner = currentUserService.getCurrentUser();
         Long ownerId = owner.getId();
+        String name = sanitizeProductText(dto.getName());
+        if (!StringUtils.hasText(name) || name.length() < 3) {
+            throw new IllegalArgumentException("El nombre del producto debe tener al menos 3 caracteres validos.");
+        }
         Category category = getCategoryForOwner(dto.getCategoryId(), ownerId);
         Product product = Product.builder()
-                .name(dto.getName())
-                .description(dto.getDescription())
+                .name(name)
+                .description(sanitizeProductDescription(dto.getDescription()))
                 .price(dto.getPrice())
                 .stock(dto.getStock())
                 .category(category)
@@ -67,8 +73,13 @@ public class ProductService {
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id " + id));
         Category category = getCategoryForOwner(dto.getCategoryId(), ownerId);
 
-        product.setName(dto.getName());
-        product.setDescription(dto.getDescription());
+        String name = sanitizeProductText(dto.getName());
+        if (!StringUtils.hasText(name) || name.length() < 3) {
+            throw new IllegalArgumentException("El nombre del producto debe tener al menos 3 caracteres validos.");
+        }
+
+        product.setName(name);
+        product.setDescription(sanitizeProductDescription(dto.getDescription()));
         product.setPrice(dto.getPrice());
         product.setStock(dto.getStock());
         product.setCategory(category);
@@ -102,6 +113,15 @@ public class ProductService {
     private Category getCategoryForOwner(Long categoryId, Long ownerId) {
         return categoryRepository.findByIdAndOwner_Id(categoryId, ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category not found with id " + categoryId));
+    }
+
+    private String sanitizeProductText(String raw) {
+        return InventoryTextSanitization.sanitize(raw);
+    }
+
+    private String sanitizeProductDescription(String raw) {
+        String s = sanitizeProductText(raw);
+        return StringUtils.hasText(s) ? s : null;
     }
 
     public ProductDTO toDTO(Product product) {
