@@ -2,8 +2,11 @@ package com.mercado_libre.gestion_productos.controller.admin;
 
 import com.mercado_libre.gestion_productos.dto.AdminMetricsDTO;
 import com.mercado_libre.gestion_productos.dto.AdminVendorUpdateRequest;
+import com.mercado_libre.gestion_productos.dto.AuthenticatedUserDTO;
+import com.mercado_libre.gestion_productos.dto.RegisterRequest;
 import com.mercado_libre.gestion_productos.dto.VendorAdminDTO;
 import com.mercado_libre.gestion_productos.service.AdminService;
+import com.mercado_libre.gestion_productos.service.AuthService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -11,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,9 +28,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminController {
 
     private final AdminService adminService;
+    private final AuthService authService;
 
-    public AdminController(AdminService adminService) {
+    public AdminController(AdminService adminService, AuthService authService) {
         this.adminService = adminService;
+        this.authService = authService;
+    }
+
+    @PostMapping("/admins")
+    @ResponseStatus(HttpStatus.CREATED)
+    public AuthenticatedUserDTO registerAdmin(@Valid @RequestBody RegisterRequest request) {
+        return authService.registerAdminAccount(request);
     }
 
     @GetMapping("/metrics")

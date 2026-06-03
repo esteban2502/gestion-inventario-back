@@ -9,12 +9,16 @@ import com.mercado_libre.gestion_productos.dto.RegisterRequest;
 import com.mercado_libre.gestion_productos.dto.ResetPasswordRequest;
 import com.mercado_libre.gestion_productos.exception.EmailAlreadyExistsException;
 import com.mercado_libre.gestion_productos.exception.InvalidPasswordResetTokenException;
+import com.mercado_libre.gestion_productos.exception.ResourceNotFoundException;
 import com.mercado_libre.gestion_productos.model.Role;
 import com.mercado_libre.gestion_productos.model.User;
 import com.mercado_libre.gestion_productos.repository.UserRepository;
 import com.mercado_libre.gestion_productos.security.JwtService;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,8 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthService.class);
-    private static final String FORGOT_PASSWORD_MESSAGE =
-            "Si el correo esta registrado, recibiras instrucciones para restablecer tu contrasena.";
+    private static final String FORGOT_PASSWORD_SUCCESS_MESSAGE =
+            "Te enviamos un correo con instrucciones para restablecer tu contrasena.";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -84,6 +88,35 @@ public class AuthService {
         return buildResponse(created, token);
     }
 
+    /**
+     * Crea un usuario con rol ADMIN (solo invocado desde API protegida para administradores).
+     * No inicia sesion del nuevo usuario ni invalida la sesion del administrador que registra.
+     */
+    public AuthenticatedUserDTO registerAdminAccount(RegisterRequest request) {
+        String normalizedEmail = normalizeEmail(request.getEmail());
+        if (userRepository.existsByEmail(normalizedEmail)) {
+            throw new EmailAlreadyExistsException("Email is already registered");
+        }
+
+        User user = User.builder()
+                .firstName(sanitizeText(request.getFirstName()))
+                .lastName(sanitizeText(request.getLastName()))
+                .address(sanitizeText(request.getAddress()))
+                .phone(sanitizePhoneDigits(request.getPhone()))
+                .email(normalizedEmail)
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .role(Role.ADMIN)
+                .build();
+
+        User saved = userRepository.save(user);
+        return AuthenticatedUserDTO.builder()
+                .id(saved.getId())
+                .fullName(saved.getFirstName() + " " + saved.getLastName())
+                .email(saved.getEmail())
+                .role(saved.getRole().name())
+                .build();
+    }
+
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
         String normalizedEmail = normalizeEmail(request.getEmail());
@@ -94,6 +127,8 @@ public class AuthService {
 
             User user = userRepository.findByEmail(normalizedEmail)
                     .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
+
+            assertPortalMatchesRole(request, user);
 
             String token = jwtService.generateToken(
                     (UserDetails) authentication.getPrincipal(),
@@ -108,18 +143,23 @@ public class AuthService {
 
     public MessageResponse forgotPassword(ForgotPasswordRequest request) {
         String normalizedEmail = normalizeEmail(request.getEmail());
-        userRepository.findByEmail(normalizedEmail).ifPresent(user -> {
-            String token = UUID.randomUUID().toString().replace("-", "");
-            user.setPasswordResetToken(token);
-            user.setPasswordResetTokenExpiresAt(
-                    LocalDateTime.now().plusMinutes(passwordResetExpirationMinutes)
-            );
-            userRepository.save(user);
-            String resetUrl = buildPasswordResetUrl(token);
-            passwordResetEmailService.sendPasswordResetEmail(user, resetUrl);
-        });
+        Optional<User> userOpt = userRepository.findByEmail(normalizedEmail);
+        if (userOpt.isEmpty()) {
+            throw new ResourceNotFoundException(
+                    "No hay ninguna cuenta registrada con este correo electronico.");
+        }
 
-        return MessageResponse.builder().message(FORGOT_PASSWORD_MESSAGE).build();
+        User user = userOpt.get();
+        String token = UUID.randomUUID().toString().replace("-", "");
+        user.setPasswordResetToken(token);
+        user.setPasswordResetTokenExpiresAt(
+                LocalDateTime.now().plusMinutes(passwordResetExpirationMinutes)
+        );
+        userRepository.save(user);
+        String resetUrl = buildPasswordResetUrl(token, request.getReturnUrl());
+        passwordResetEmailService.sendPasswordResetEmail(user, resetUrl);
+
+        return MessageResponse.builder().message(FORGOT_PASSWORD_SUCCESS_MESSAGE).build();
     }
 
     public MessageResponse resetPassword(ResetPasswordRequest request) {
@@ -171,9 +211,43 @@ public class AuthService {
         );
     }
 
-    private String buildPasswordResetUrl(String token) {
+    private String buildPasswordResetUrl(String token, String returnUrl) {
         String baseUrl = passwordResetFrontendUrl.replaceAll("/+$", "");
-        return baseUrl + "/reset-password/" + token;
+        String path = baseUrl + "/reset-password/" + token;
+        String safeReturn = sanitizeWhitelistedReturnPath(returnUrl);
+        if (safeReturn == null) {
+            return path;
+        }
+        return path + "?returnUrl=" + URLEncoder.encode(safeReturn, StandardCharsets.UTF_8);
+    }
+
+    /** Comprueba que el portal de login coincida con el rol del usuario (vendedor vs admin). */
+    private void assertPortalMatchesRole(LoginRequest request, User user) {
+        String portal = request.getPortal() == null || request.getPortal().isBlank()
+                ? "seller"
+                : request.getPortal().trim().toLowerCase();
+        if ("admin".equals(portal)) {
+            if (user.getRole() != Role.ADMIN) {
+                throw new BadCredentialsException("Invalid email or password");
+            }
+            return;
+        }
+        if (user.getRole() != Role.SELLER) {
+            throw new BadCredentialsException("Invalid email or password");
+        }
+    }
+
+    /** Solo rutas relativas permitidas; cualquier otro valor se ignora (defensa en profundidad). */
+    private String sanitizeWhitelistedReturnPath(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String t = raw.trim();
+        if ("/admin/ingreso".equals(t) || "/login".equals(t)) {
+            return t;
+        }
+        log.debug("returnUrl ignorado (no permitido): {}", raw);
+        return null;
     }
 
     private String normalizeEmail(String email) {
